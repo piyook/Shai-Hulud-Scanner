@@ -352,7 +352,7 @@ function extract_packages(lockJson) {
       lockJson.dependencies &&
       typeof lockJson.dependencies === "object"
     ) {
-      function recurseDeps(deps, parentName) {
+      function recurseDeps(deps) {
         Object.entries(deps).forEach(([depName, depVal]) => {
           if (!depVal) return;
           if (depVal.version) {
@@ -402,7 +402,7 @@ function scan_packages(filePath) {
   let json;
   try {
     json = JSON.parse(raw);
-  } catch (err) {
+  } catch {
     log_message("ERROR", `Invalid JSON file: ${filePath}`);
     return 1;
   }
@@ -615,10 +615,6 @@ function main() {
 
   process.exit(result);
 }
-
-// if (require.main === module) {
-//     main();
-// }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   main();
