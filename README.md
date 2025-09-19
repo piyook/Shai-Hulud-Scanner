@@ -27,7 +27,7 @@ node shai_hulud_scanner.js [OPTIONS]
 #### Options
 
 - `-f, --file FILE`  
-  Specify the path to the `package-lock.json` file (default: `./package-lock.json`).
+  Specify the path to the `package-lock.json` file <b>IN YOUR PROJECT DIRECTORY</b> (default: `./package-lock.json`).
 - `-v, --verbose`  
   Enable verbose output.
 - `-o, --output FILE`  

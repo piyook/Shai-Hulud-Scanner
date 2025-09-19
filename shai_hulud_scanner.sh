@@ -434,6 +434,8 @@ main() {
         log_message "INFO" "Results will be saved to: $OUTPUT_FILE"
     fi
     
+    log_message "INFO" "Scanning file: $PACKAGE_LOCK_FILE"
+    
     scan_packages "$PACKAGE_LOCK_FILE"
     scan_result=$?
     

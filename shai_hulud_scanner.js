@@ -579,6 +579,8 @@ function main() {
     log_message("INFO", `Results will be saved to: ${OUTPUT_FILE}`);
   }
 
+  log_message("INFO", `Scanning file: ${PACKAGE_LOCK_FILE}`);
+
   const result = scan_packages(PACKAGE_LOCK_FILE);
 
   console.log(
