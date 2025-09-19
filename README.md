@@ -6,6 +6,7 @@ The **Shai-Hulud Scanner** is a tool designed to detect malicious packages in yo
 
 - Scans `package-lock.json` files for malicious packages.
 - Supports both Node.js and Bash environments.
+- Can scan individual files or all package-lock.json files in a directory.
 - Provides detailed logs and actionable recommendations.
 - Optionally outputs results to a file.
 - Generates a list of malicious packages for reference.
@@ -27,7 +28,9 @@ node shai_hulud_scanner.js [OPTIONS]
 #### Options
 
 - `-f, --file FILE`  
-  Specify the path to the `package-lock.json` file <b>IN YOUR PROJECT DIRECTORY</b> (default: `./package-lock.json`).
+  Specify the path to the `package-lock.json` file (default: `./package-lock.json`).
+- `-d, --dir DIR`  
+  Directory to scan for all package-lock.json files recursively.
 - `-v, --verbose`  
   Enable verbose output.
 - `-o, --output FILE`  
@@ -40,9 +43,20 @@ node shai_hulud_scanner.js [OPTIONS]
 #### Examples
 
 ```bash
+# Scan default package-lock.json in current directory
 node shai_hulud_scanner.js
+
+# Scan a specific package-lock.json file with verbose output
 node shai_hulud_scanner.js -f /path/to/package-lock.json -v
+
+# Scan a specific file and save results
 node shai_hulud_scanner.js --file ./project/package-lock.json --output scan_results.txt
+
+# Scan all package-lock.json files in a directory
+node shai_hulud_scanner.js --dir /path/to/projects --output scan_results.txt
+
+# Scan all files in directory with verbose output
+node shai_hulud_scanner.js -d ./projects -v
 ```
 
 ---
@@ -64,6 +78,8 @@ bash shai_hulud_scanner.sh [OPTIONS]
 
 - `-f, --file FILE`  
   Specify the path to the `package-lock.json` file (default: `./package-lock.json`).
+- `-d, --dir DIR`  
+  Directory to scan for all package-lock.json files recursively.
 - `-v, --verbose`  
   Enable verbose output.
 - `-o, --output FILE`  
@@ -76,9 +92,20 @@ bash shai_hulud_scanner.sh [OPTIONS]
 #### Examples
 
 ```bash
+# Scan default package-lock.json in current directory
 bash shai_hulud_scanner.sh
+
+# Scan a specific package-lock.json file with verbose output
 bash shai_hulud_scanner.sh -f /path/to/package-lock.json -v
+
+# Scan a specific file and save results
 bash shai_hulud_scanner.sh --file ./project/package-lock.json --output scan_results.txt
+
+# Scan all package-lock.json files in a directory
+bash shai_hulud_scanner.sh --dir /path/to/projects --output scan_results.txt
+
+# Scan all files in directory with verbose output
+bash shai_hulud_scanner.sh -d ./projects -v
 ```
 
 ---
@@ -86,6 +113,7 @@ bash shai_hulud_scanner.sh --file ./project/package-lock.json --output scan_resu
 ## Output
 
 - **Console Logs**: Displays scan results, including any detected malicious packages.
+- **Directory Scanning**: When using `--dir`, shows progress for each file and provides a summary of total files scanned and files with threats.
 - **Output File (Optional)**: Saves detailed results to a specified file.
 - **Malicious Package List**: Use the `--create-list` option to generate a `malicious_packages.txt` file for reference.
 

@@ -17,6 +17,7 @@ NC='\033[0m' # No Color
 PACKAGE_LOCK_FILE="package-lock.json"
 VERBOSE=false
 OUTPUT_FILE=""
+SCAN_DIR=""
 
 # Function to display help
 show_help() {
@@ -30,6 +31,7 @@ Usage: $0 [OPTIONS]
 
 OPTIONS:
     -f, --file FILE         Specify package-lock.json file path (default: ./package-lock.json)
+    -d, --dir DIR           Directory to scan for all package-lock.json files
     -v, --verbose          Enable verbose output
     -o, --output FILE      Output results to file
     -h, --help             Show this help message
@@ -38,6 +40,8 @@ Examples:
     $0                     # Scan ./package-lock.json
     $0 -f /path/to/package-lock.json -v
     $0 --file ./project/package-lock.json --output scan_results.txt
+    $0 --dir /path/to/projects --output scan_results.txt
+    $0 -d ./projects -v
 
 EOF
 }
@@ -80,6 +84,10 @@ parse_arguments() {
         case $1 in
             -f|--file)
                 PACKAGE_LOCK_FILE="$2"
+                shift 2
+                ;;
+            -d|--dir)
+                SCAN_DIR="$2"
                 shift 2
                 ;;
             -v|--verbose)
@@ -304,6 +312,24 @@ declare -A MALICIOUS_PACKAGES=(
     ["@basic-ui-components-stc/basic-ui-components"]="1.0.5"
 )
 
+# Function to find all package-lock.json files in a directory recursively
+find_package_lock_files() {
+    local dir_path="$1"
+    local files=()
+    
+    if [ ! -d "$dir_path" ]; then
+        log_message "ERROR" "Directory not found: $dir_path"
+        return 1
+    fi
+    
+    # Use find command to locate all package-lock.json files, excluding node_modules
+    while IFS= read -r -d '' file; do
+        files+=("$file")
+    done < <(find "$dir_path" -name "package-lock.json" -not -path "*/node_modules/*" -print0 2>/dev/null)
+    
+    printf '%s\n' "${files[@]}"
+}
+
 # Function to check if version is malicious
 is_version_malicious() {
     local package_name=$1
@@ -418,6 +444,59 @@ scan_packages() {
     fi
 }
 
+# Function to scan all package-lock.json files in a directory
+scan_all_packages() {
+    local dir_path="$1"
+    local total_files=0
+    local files_with_threats=0
+    local overall_result=0
+    
+    log_message "INFO" "Scanning all package-lock.json files in directory: $dir_path"
+    
+    # Get list of package-lock.json files
+    local package_lock_files
+    package_lock_files=$(find_package_lock_files "$dir_path")
+    
+    if [ -z "$package_lock_files" ]; then
+        log_message "WARNING" "No package-lock.json files found in $dir_path"
+        return 0
+    fi
+    
+    # Count files
+    local file_count
+    file_count=$(echo "$package_lock_files" | wc -l)
+    log_message "INFO" "Found $file_count package-lock.json file(s) to scan"
+    
+    # Process each file
+    while IFS= read -r file_path; do
+        if [ -n "$file_path" ]; then
+            total_files=$((total_files + 1))
+            log_message "INFO" ""
+            log_message "INFO" "--- Scanning file $total_files/$file_count: $file_path ---"
+            
+            local result
+            result=$(scan_packages "$file_path")
+            if [ "$result" -ne 0 ]; then
+                files_with_threats=$((files_with_threats + 1))
+                overall_result=1  # At least one file has threats
+            fi
+        fi
+    done <<< "$package_lock_files"
+    
+    log_message "INFO" ""
+    log_message "INFO" "--- Scan Summary ---"
+    log_message "INFO" "Total files scanned: $total_files"
+    log_message "INFO" "Files with security threats: $files_with_threats"
+    
+    if [ $overall_result -eq 0 ]; then
+        log_message "SUCCESS" "✅ All $total_files file(s) are clean - no malicious packages detected."
+    else
+        log_message "ERROR" "⚠️  SECURITY ALERT: $files_with_threats out of $total_files file(s) contain malicious packages!"
+    fi
+    
+    return $overall_result
+}
+
 # Main function
 main() {
     echo "================================================================"
@@ -434,10 +513,15 @@ main() {
         log_message "INFO" "Results will be saved to: $OUTPUT_FILE"
     fi
     
-    log_message "INFO" "Scanning file: $PACKAGE_LOCK_FILE"
-    
-    scan_packages "$PACKAGE_LOCK_FILE"
-    scan_result=$?
+    # Choose scanning mode
+    if [ -n "$SCAN_DIR" ]; then
+        scan_all_packages "$SCAN_DIR"
+        scan_result=$?
+    else
+        log_message "INFO" "Scanning file: $PACKAGE_LOCK_FILE"
+        scan_packages "$PACKAGE_LOCK_FILE"
+        scan_result=$?
+    fi
     
     echo
     echo "================================================================"

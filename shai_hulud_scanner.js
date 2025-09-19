@@ -22,6 +22,7 @@ const NC = "\x1b[0m";
 let PACKAGE_LOCK_FILE = "package-lock.json";
 let VERBOSE = false;
 let OUTPUT_FILE = "";
+let SCAN_DIR = "";
 
 function nowTimestamp() {
   return new Date().toISOString().replace("T", " ").replace("Z", "");
@@ -77,6 +78,7 @@ Usage: node shai-hulud.js [OPTIONS]
 
 OPTIONS:
     -f, --file FILE         Specify package-lock.json file path (default: ./package-lock.json)
+    -d, --dir DIR           Directory to scan for all package-lock.json files
     -v, --verbose           Enable verbose output
     -o, --output FILE       Output results to file
     -h, --help              Show this help message
@@ -86,6 +88,8 @@ Examples:
     node shai-hulud.js
     node shai-hulud.js -f /path/to/package-lock.json -v
     node shai-hulud.js --file ./project/package-lock.json --output scan_results.txt
+    node shai-hulud.js --dir /path/to/projects --output scan_results.txt
+    node shai-hulud.js -d ./projects -v
 `);
 }
 
@@ -377,6 +381,38 @@ function extract_packages(lockJson) {
 }
 
 /**
+ * Find all package-lock.json files in a directory recursively
+ */
+function find_package_lock_files(dirPath) {
+  const packageLockFiles = [];
+
+  try {
+    function findFilesRecursively(currentPath) {
+      const items = fs.readdirSync(currentPath, { withFileTypes: true });
+
+      for (const item of items) {
+        const fullPath = `${currentPath}/${item.name}`;
+
+        if (item.isDirectory()) {
+          // Skip node_modules directories to avoid scanning dependencies
+          if (item.name !== "node_modules") {
+            findFilesRecursively(fullPath);
+          }
+        } else if (item.isFile() && item.name === "package-lock.json") {
+          packageLockFiles.push(fullPath);
+        }
+      }
+    }
+
+    findFilesRecursively(dirPath);
+  } catch (err) {
+    log_message("ERROR", `Failed to scan directory ${dirPath}: ${err.message}`);
+  }
+
+  return packageLockFiles;
+}
+
+/**
  * Scan packages and report malicious ones
  */
 function scan_packages(filePath) {
@@ -474,6 +510,69 @@ function scan_packages(filePath) {
 }
 
 /**
+ * Scan all package-lock.json files in a directory
+ */
+function scan_all_packages(dirPath) {
+  log_message(
+    "INFO",
+    `Scanning all package-lock.json files in directory: ${dirPath}`
+  );
+
+  if (!fs.existsSync(dirPath)) {
+    log_message("ERROR", `Directory not found: ${dirPath}`);
+    return 1;
+  }
+
+  const packageLockFiles = find_package_lock_files(dirPath);
+
+  if (packageLockFiles.length === 0) {
+    log_message("WARNING", `No package-lock.json files found in ${dirPath}`);
+    return 0;
+  }
+
+  log_message(
+    "INFO",
+    `Found ${packageLockFiles.length} package-lock.json file(s) to scan`
+  );
+
+  let totalFiles = 0;
+  let filesWithThreats = 0;
+  let overallResult = 0;
+
+  for (const filePath of packageLockFiles) {
+    totalFiles++;
+    log_message(
+      "INFO",
+      `\n--- Scanning file ${totalFiles}/${packageLockFiles.length}: ${filePath} ---`
+    );
+
+    const result = scan_packages(filePath);
+    if (result !== 0) {
+      filesWithThreats++;
+      overallResult = 1; // At least one file has threats
+    }
+  }
+
+  log_message("INFO", `\n--- Scan Summary ---`);
+  log_message("INFO", `Total files scanned: ${totalFiles}`);
+  log_message("INFO", `Files with security threats: ${filesWithThreats}`);
+
+  if (overallResult === 0) {
+    log_message(
+      "SUCCESS",
+      `✅ All ${totalFiles} file(s) are clean - no malicious packages detected.`
+    );
+  } else {
+    log_message(
+      "ERROR",
+      `⚠️  SECURITY ALERT: ${filesWithThreats} out of ${totalFiles} file(s) contain malicious packages!`
+    );
+  }
+
+  return overallResult;
+}
+
+/**
  * Create a simple malicious package list file (malicious_packages.txt)
  */
 function create_package_list() {
@@ -522,6 +621,15 @@ function parse_arguments(argv) {
           process.exit(1);
         }
         PACKAGE_LOCK_FILE = args[i];
+        break;
+      case "-d":
+      case "--dir":
+        i++;
+        if (i >= args.length) {
+          console.error(`${RED}[ERROR]${NC} Missing argument for ${a}`);
+          process.exit(1);
+        }
+        SCAN_DIR = args[i];
         break;
       case "-v":
       case "--verbose":
@@ -579,9 +687,13 @@ function main() {
     log_message("INFO", `Results will be saved to: ${OUTPUT_FILE}`);
   }
 
-  log_message("INFO", `Scanning file: ${PACKAGE_LOCK_FILE}`);
-
-  const result = scan_packages(PACKAGE_LOCK_FILE);
+  let result;
+  if (SCAN_DIR) {
+    result = scan_all_packages(SCAN_DIR);
+  } else {
+    log_message("INFO", `Scanning file: ${PACKAGE_LOCK_FILE}`);
+    result = scan_packages(PACKAGE_LOCK_FILE);
+  }
 
   console.log(
     "\n================================================================"
