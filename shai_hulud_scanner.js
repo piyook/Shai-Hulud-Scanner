@@ -12,6 +12,7 @@
 import fs from "fs";
 import process from "process";
 import { fileURLToPath } from "url";
+import { execSync } from "child_process";
 
 const RED = "\x1b[31m";
 const GREEN = "\x1b[32m";
@@ -23,6 +24,7 @@ let PACKAGE_LOCK_FILE = "package-lock.json";
 let VERBOSE = false;
 let OUTPUT_FILE = "";
 let SCAN_DIR = "";
+let SCAN_GLOBAL = false;
 
 function nowTimestamp() {
   return new Date().toISOString().replace("T", " ").replace("Z", "");
@@ -79,6 +81,7 @@ Usage: node shai-hulud.js [OPTIONS]
 OPTIONS:
     -f, --file FILE         Specify package-lock.json file path (default: ./package-lock.json)
     -d, --dir DIR           Directory to scan for all package-lock.json files
+    -g, --global            Scan globally installed npm packages
     -v, --verbose           Enable verbose output
     -o, --output FILE       Output results to file
     -h, --help              Show this help message
@@ -90,6 +93,7 @@ Examples:
     node shai-hulud.js --file ./project/package-lock.json --output scan_results.txt
     node shai-hulud.js --dir /path/to/projects --output scan_results.txt
     node shai-hulud.js -d ./projects -v
+    node shai-hulud.js --global --output global_scan.txt
 `);
 }
 
@@ -381,6 +385,70 @@ function extract_packages(lockJson) {
 }
 
 /**
+ * Get globally installed npm packages
+ */
+function get_global_packages() {
+  const packages = new Set();
+
+  try {
+    // Use npm list -g --depth=0 --json to get global packages
+    const output = execSync("npm list -g --depth=0 --json", {
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"], // Capture stderr to handle warnings
+    });
+
+    const globalData = JSON.parse(output);
+
+    if (globalData.dependencies) {
+      Object.entries(globalData.dependencies).forEach(([name, info]) => {
+        if (info && info.version) {
+          packages.add(`${name}@${info.version}`);
+        }
+      });
+    }
+  } catch (err) {
+    log_message("ERROR", `Failed to get global packages: ${err.message}`);
+    // Try alternative method using npm list -g --parseable
+    try {
+      const output = execSync("npm list -g --parseable --depth=0", {
+        encoding: "utf8",
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+
+      const lines = output.trim().split("\n");
+      lines.forEach((line) => {
+        if (line.includes("node_modules/")) {
+          const parts = line.split("/");
+          const packageName = parts[parts.length - 1];
+          if (packageName && !packageName.startsWith(".")) {
+            // Try to get version from package.json
+            try {
+              const packageJsonPath = `${line}/package.json`;
+              const packageJson = JSON.parse(
+                fs.readFileSync(packageJsonPath, "utf8")
+              );
+              if (packageJson.version) {
+                packages.add(`${packageName}@${packageJson.version}`);
+              }
+            } catch (e) {
+              // If we can't read package.json, just add without version
+              packages.add(`${packageName}@unknown`);
+            }
+          }
+        }
+      });
+    } catch (altErr) {
+      log_message(
+        "ERROR",
+        `Failed to get global packages with alternative method: ${altErr.message}`
+      );
+    }
+  }
+
+  return packages;
+}
+
+/**
  * Find all package-lock.json files in a directory recursively
  */
 function find_package_lock_files(dirPath) {
@@ -573,6 +641,100 @@ function scan_all_packages(dirPath) {
 }
 
 /**
+ * Scan globally installed npm packages
+ */
+function scan_global_packages() {
+  log_message("INFO", "Scanning globally installed npm packages...");
+  log_message(
+    "INFO",
+    "This scan checks for globally installed packages compromised in the Shai-Hulud npm supply chain attack"
+  );
+
+  const globalPackages = get_global_packages();
+
+  if (globalPackages.size === 0) {
+    log_message(
+      "WARNING",
+      "No global packages found or failed to retrieve global packages"
+    );
+    return 0;
+  }
+
+  log_message(
+    "VERBOSE",
+    `Found ${globalPackages.size} global package(s) to scan`
+  );
+
+  let totalPackages = 0;
+  let maliciousCount = 0;
+  let foundMalicious = false;
+
+  for (const pkg of Array.from(globalPackages).sort()) {
+    if (!pkg) continue;
+    totalPackages++;
+    const match = pkg.match(/^(.+)@([^@]+)$/);
+    if (!match) continue;
+    const packageName = match[1];
+    const version = match[2];
+
+    log_message("VERBOSE", `Checking global package ${packageName}@${version}`);
+
+    if (is_version_malicious(packageName, version)) {
+      log_message(
+        "WARNING",
+        `🚨 MALICIOUS GLOBAL PACKAGE DETECTED: ${packageName}@${version}`
+      );
+      foundMalicious = true;
+      maliciousCount++;
+    }
+  }
+
+  log_message(
+    "INFO",
+    `Global scan completed. Total packages checked: ${totalPackages}`
+  );
+
+  if (foundMalicious) {
+    log_message(
+      "ERROR",
+      `⚠️  SECURITY ALERT: Found ${maliciousCount} malicious global package(s)!`
+    );
+    log_message(
+      "ERROR",
+      `These global packages are part of the Shai-Hulud npm supply chain attack.`
+    );
+    log_message("ERROR", `IMMEDIATE ACTIONS REQUIRED:`);
+    log_message(
+      "ERROR",
+      `1. Uninstall the malicious global packages immediately`
+    );
+    log_message(
+      "ERROR",
+      `2. Rotate all access tokens for GitHub, NPM, AWS, GCP, and Azure`
+    );
+    log_message(
+      "ERROR",
+      `3. Check for unauthorized GitHub repositories named 'Shai-Hulud'`
+    );
+    log_message(
+      "ERROR",
+      `4. Scan your system with TruffleHog to detect any leaked secrets`
+    );
+    log_message(
+      "ERROR",
+      `5. Review recent npm publish activities on your account`
+    );
+    return 1;
+  } else {
+    log_message(
+      "SUCCESS",
+      `✅ No malicious global packages detected. Your global npm environment appears to be safe.`
+    );
+    return 0;
+  }
+}
+
+/**
  * Create a simple malicious package list file (malicious_packages.txt)
  */
 function create_package_list() {
@@ -631,6 +793,10 @@ function parse_arguments(argv) {
         }
         SCAN_DIR = args[i];
         break;
+      case "-g":
+      case "--global":
+        SCAN_GLOBAL = true;
+        break;
       case "-v":
       case "--verbose":
         VERBOSE = true;
@@ -688,7 +854,9 @@ function main() {
   }
 
   let result;
-  if (SCAN_DIR) {
+  if (SCAN_GLOBAL) {
+    result = scan_global_packages();
+  } else if (SCAN_DIR) {
     result = scan_all_packages(SCAN_DIR);
   } else {
     log_message("INFO", `Scanning file: ${PACKAGE_LOCK_FILE}`);

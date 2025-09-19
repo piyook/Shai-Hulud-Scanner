@@ -5,6 +5,7 @@ The **Shai-Hulud Scanner** is a tool designed to detect malicious packages in yo
 ## Features
 
 - Scans `package-lock.json` files for malicious packages.
+- Scans globally installed npm packages for malicious versions.
 - Supports both Node.js and Bash environments.
 - Can scan individual files or all package-lock.json files in a directory.
 - Provides detailed logs and actionable recommendations.
@@ -31,6 +32,8 @@ node shai_hulud_scanner.js [OPTIONS]
   Specify the path to the `package-lock.json` file (default: `./package-lock.json`).
 - `-d, --dir DIR`  
   Directory to scan for all package-lock.json files recursively.
+- `-g, --global`  
+  Scan globally installed npm packages.
 - `-v, --verbose`  
   Enable verbose output.
 - `-o, --output FILE`  
@@ -57,6 +60,9 @@ node shai_hulud_scanner.js --dir /path/to/projects --output scan_results.txt
 
 # Scan all files in directory with verbose output
 node shai_hulud_scanner.js -d ./projects -v
+
+# Scan globally installed npm packages
+node shai_hulud_scanner.js --global --output global_scan.txt
 ```
 
 ---
@@ -80,6 +86,8 @@ bash shai_hulud_scanner.sh [OPTIONS]
   Specify the path to the `package-lock.json` file (default: `./package-lock.json`).
 - `-d, --dir DIR`  
   Directory to scan for all package-lock.json files recursively.
+- `-g, --global`  
+  Scan globally installed npm packages.
 - `-v, --verbose`  
   Enable verbose output.
 - `-o, --output FILE`  
@@ -106,6 +114,9 @@ bash shai_hulud_scanner.sh --dir /path/to/projects --output scan_results.txt
 
 # Scan all files in directory with verbose output
 bash shai_hulud_scanner.sh -d ./projects -v
+
+# Scan globally installed npm packages
+bash shai_hulud_scanner.sh --global --output global_scan.txt
 ```
 
 ---
@@ -114,6 +125,7 @@ bash shai_hulud_scanner.sh -d ./projects -v
 
 - **Console Logs**: Displays scan results, including any detected malicious packages.
 - **Directory Scanning**: When using `--dir`, shows progress for each file and provides a summary of total files scanned and files with threats.
+- **Global Package Scanning**: When using `--global`, scans all globally installed npm packages and reports any malicious versions found.
 - **Output File (Optional)**: Saves detailed results to a specified file.
 - **Malicious Package List**: Use the `--create-list` option to generate a `malicious_packages.txt` file for reference.
 

@@ -18,6 +18,7 @@ PACKAGE_LOCK_FILE="package-lock.json"
 VERBOSE=false
 OUTPUT_FILE=""
 SCAN_DIR=""
+SCAN_GLOBAL=false
 
 # Function to display help
 show_help() {
@@ -32,6 +33,7 @@ Usage: $0 [OPTIONS]
 OPTIONS:
     -f, --file FILE         Specify package-lock.json file path (default: ./package-lock.json)
     -d, --dir DIR           Directory to scan for all package-lock.json files
+    -g, --global            Scan globally installed npm packages
     -v, --verbose          Enable verbose output
     -o, --output FILE      Output results to file
     -h, --help             Show this help message
@@ -42,6 +44,7 @@ Examples:
     $0 --file ./project/package-lock.json --output scan_results.txt
     $0 --dir /path/to/projects --output scan_results.txt
     $0 -d ./projects -v
+    $0 --global --output global_scan.txt
 
 EOF
 }
@@ -89,6 +92,10 @@ parse_arguments() {
             -d|--dir)
                 SCAN_DIR="$2"
                 shift 2
+                ;;
+            -g|--global)
+                SCAN_GLOBAL=true
+                shift
                 ;;
             -v|--verbose)
                 VERBOSE=true
@@ -312,6 +319,63 @@ declare -A MALICIOUS_PACKAGES=(
     ["@basic-ui-components-stc/basic-ui-components"]="1.0.5"
 )
 
+# Function to get globally installed npm packages
+get_global_packages() {
+    local packages=()
+    
+    # Try npm list -g --depth=0 --json first
+    if command -v npm >/dev/null 2>&1; then
+        local npm_output
+        if npm_output=$(npm list -g --depth=0 --json 2>/dev/null); then
+            # Parse JSON output using jq if available
+            if command -v jq >/dev/null 2>&1; then
+                while IFS= read -r package_line; do
+                    if [[ -n "$package_line" ]]; then
+                        packages+=("$package_line")
+                    fi
+                done < <(echo "$npm_output" | jq -r '.dependencies // {} | to_entries[] | "\(.key)@\(.value.version)"' 2>/dev/null)
+            else
+                # Fallback: try to parse without jq (basic parsing)
+                log_message "WARNING" "jq not available, using basic parsing for global packages"
+                while IFS= read -r package_line; do
+                    if [[ "$package_line" =~ \"([^\"]+)\":\s*\{\s*\"version\":\s*\"([^\"]+)\" ]]; then
+                        packages+=("${BASH_REMATCH[1]}@${BASH_REMATCH[2]}")
+                    fi
+                done < <(echo "$npm_output" | grep -E '"[^"]+":\s*\{\s*"version":\s*"[^"]+"')
+            fi
+        else
+            # Fallback: use npm list -g --parseable
+            log_message "VERBOSE" "Using alternative method to get global packages"
+            while IFS= read -r package_path; do
+                if [[ "$package_path" == *"/node_modules/"* ]]; then
+                    local package_name
+                    package_name=$(basename "$package_path")
+                    if [[ "$package_name" != "." && "$package_name" != ".." ]]; then
+                        # Try to get version from package.json
+                        local package_json="$package_path/package.json"
+                        if [[ -f "$package_json" ]]; then
+                            local version
+                            version=$(grep '"version"' "$package_json" 2>/dev/null | head -1 | sed 's/.*"version":\s*"\([^"]*\)".*/\1/')
+                            if [[ -n "$version" ]]; then
+                                packages+=("$package_name@$version")
+                            else
+                                packages+=("$package_name@unknown")
+                            fi
+                        else
+                            packages+=("$package_name@unknown")
+                        fi
+                    fi
+                fi
+            done < <(npm list -g --parseable --depth=0 2>/dev/null)
+        fi
+    else
+        log_message "ERROR" "npm command not found"
+        return 1
+    fi
+    
+    printf '%s\n' "${packages[@]}"
+}
+
 # Function to find all package-lock.json files in a directory recursively
 find_package_lock_files() {
     local dir_path="$1"
@@ -497,6 +561,68 @@ scan_all_packages() {
     return $overall_result
 }
 
+# Function to scan globally installed npm packages
+scan_global_packages() {
+    local total_packages=0
+    local malicious_count=0
+    local found_malicious=false
+    
+    log_message "INFO" "Scanning globally installed npm packages..."
+    log_message "INFO" "This scan checks for globally installed packages compromised in the Shai-Hulud npm supply chain attack"
+    
+    # Get list of global packages
+    local global_packages
+    global_packages=$(get_global_packages)
+    
+    if [ -z "$global_packages" ]; then
+        log_message "WARNING" "No global packages found or failed to retrieve global packages"
+        return 0
+    fi
+    
+    # Count packages
+    local package_count
+    package_count=$(echo "$global_packages" | wc -l)
+    log_message "VERBOSE" "Found $package_count global package(s) to scan"
+    
+    # Process each package
+    while IFS= read -r package_line; do
+        if [ -n "$package_line" ]; then
+            total_packages=$((total_packages + 1))
+            
+            # Extract package name and version
+            if [[ "$package_line" =~ ^(.+)@([^@]+)$ ]]; then
+                local package_name="${BASH_REMATCH[1]}"
+                local version="${BASH_REMATCH[2]}"
+                
+                log_message "VERBOSE" "Checking global package $package_name@$version"
+                
+                if is_version_malicious "$package_name" "$version"; then
+                    log_message "WARNING" "🚨 MALICIOUS GLOBAL PACKAGE DETECTED: $package_name@$version"
+                    found_malicious=true
+                    malicious_count=$((malicious_count + 1))
+                fi
+            fi
+        fi
+    done <<< "$global_packages"
+    
+    log_message "INFO" "Global scan completed. Total packages checked: $total_packages"
+    
+    if [ "$found_malicious" = true ]; then
+        log_message "ERROR" "⚠️  SECURITY ALERT: Found $malicious_count malicious global package(s)!"
+        log_message "ERROR" "These global packages are part of the Shai-Hulud npm supply chain attack."
+        log_message "ERROR" "IMMEDIATE ACTIONS REQUIRED:"
+        log_message "ERROR" "1. Uninstall the malicious global packages immediately"
+        log_message "ERROR" "2. Rotate all access tokens for GitHub, NPM, AWS, GCP, and Azure"
+        log_message "ERROR" "3. Check for unauthorized GitHub repositories named 'Shai-Hulud'"
+        log_message "ERROR" "4. Scan your system with TruffleHog to detect any leaked secrets"
+        log_message "ERROR" "5. Review recent npm publish activities on your account"
+        return 1
+    else
+        log_message "SUCCESS" "✅ No malicious global packages detected. Your global npm environment appears to be safe."
+        return 0
+    fi
+}
+
 # Main function
 main() {
     echo "================================================================"
@@ -514,7 +640,10 @@ main() {
     fi
     
     # Choose scanning mode
-    if [ -n "$SCAN_DIR" ]; then
+    if [ "$SCAN_GLOBAL" = true ]; then
+        scan_global_packages
+        scan_result=$?
+    elif [ -n "$SCAN_DIR" ]; then
         scan_all_packages "$SCAN_DIR"
         scan_result=$?
     else
