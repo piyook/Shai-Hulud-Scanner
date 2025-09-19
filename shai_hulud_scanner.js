@@ -337,7 +337,7 @@ function extract_packages(lockJson) {
         if (!val || !val.version) return;
         let name = key;
         if (name.startsWith("node_modules/")) {
-          name = name.substr("node_modules/".length);
+          name = name.substring("node_modules/".length);
         } else if (name === "") {
           // root package; no package name in lockfile "packages['']" — skip
           return;
@@ -549,11 +549,9 @@ function parse_arguments(argv) {
       case "--help":
         show_help();
         process.exit(0);
-        break;
       case "--create-list":
         const rc = create_package_list();
         process.exit(rc);
-        break;
       default:
         console.error(`${RED}[ERROR]${NC} Unknown option: ${a}`);
         show_help();
